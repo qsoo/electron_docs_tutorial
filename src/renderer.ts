@@ -26,6 +26,31 @@
  * ```
  */
 
-import './index.css';
+type Versions = {
+  node: () => string;
+  chrome: () => string;
+  electron: () => string;
+};
 
-console.log('👋 This message is being logged by "renderer.js", included via webpack');
+type Commands = {
+  ping: () => Promise<string>;
+};
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-expect-error
+const versions: Versions = window.versions;
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-expect-error
+const commands: Commands = window.command;
+
+const information = document.getElementById("info");
+
+// Display the information in the HTML element
+information.innerText = `Node.js: ${versions.node()}, Chrome: ${versions.chrome()}, Electron: ${versions.electron()}`;
+
+async function pingFunc() {
+  const response = await commands.ping();
+  console.log("response:", response);
+}
+
+pingFunc();

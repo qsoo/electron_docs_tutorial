@@ -2,7 +2,7 @@
   "name": "electron",
   "productName": "electron",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "Study Electron tutorials",
   "main": ".webpack/main",
   "scripts": {
     "start": "electron-forge start",
@@ -13,8 +13,8 @@
   },
   "keywords": [],
   "author": {
-    "name": "최규수(Choi, Kyu Soo)",
-    "email": "david.choi@ewoosoft.com"
+    "name": "qsoo",
+    "email": "qsoo3810@gmail.com"
   },
   "license": "MIT",
   "devDependencies": {
