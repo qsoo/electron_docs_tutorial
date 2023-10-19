@@ -16,6 +16,8 @@ const createWindow = (): void => {
   win.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
   win.webContents.openDevTools();
+
+  console.log(win.webContents);
 };
 
 app.whenReady().then(() => {
