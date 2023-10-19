@@ -47,6 +47,15 @@
         - [Optional: returning a reply](#optional-returning-a-reply)
       - [Pattern 4: Renderer to renderer](#pattern-4-renderer-to-renderer)
       - [Object serialization](#object-serialization)
+    - [Process Sandboxing](#process-sandboxing)
+      - [Sandbox behaviour in Electron](#sandbox-behaviour-in-electron)
+        - [Renderer processes](#renderer-processes)
+        - [Preload scripts's environment](#preload-scriptss-environment)
+      - [Configuring the sandbox](#configuring-the-sandbox)
+        - [Disabling the sandbox for a single process](#disabling-the-sandbox-for-a-single-process)
+        - [Enabling the sandbox globally](#enabling-the-sandbox-globally)
+        - [Disabling Chromium's sandbox (testing only)](#disabling-chromiums-sandbox-testing-only)
+      - [A note on rendering untrusted content](#a-note-on-rendering-untrusted-content)
 
 ## [Tutorial](https://www.electronjs.org/docs/latest/tutorial/tutorial-prerequisites)
 
@@ -433,3 +442,69 @@ Render to render를 직접적으로 할 수 있는 방법은 없고 아래와 �
 #### Object serialization
 
 Electron IPC 구현은 HTML 표준 Structured Clone Algorithm을 사용하여 processes 간에 전달되는 객체를 직렬화 하므로 특정 유형의 객체만 IPC channels를 통해 전달할 수 있다. 예를 들면 DOM 객체, C++ class가 지원하는 Node.js 객체, C++ class가 지원하는 Electron 객체 등은 직렬화가 불가능하다.
+
+### Process Sandboxing
+
+---
+
+Chromium의 주요 보안 기능 중 하나는 sandbox 내에서 processes를 실행하는 것이다. sandbox는 대부분의 시스템 리소스에 대한 접근을 제한하여 악성 코드로 인한 피해를 막는다. sandbox가 적용된 processes는 CPU 사이클과 메모리만 자유롭게 사용할 수 있다. 추가 권한이 필요할 작업을 수행하기 위해선 전용 통신 채널을 이용하여 더 많은 권한이 있는 process에 작업을 위임해야 한다.
+
+Chromium에선 main process를 제외한 대부분의 process는 sandboxed
+
+- 참고: Chromium's [Sandbox design document](https://chromium.googlesource.com/chromium/src/+/main/docs/design/sandbox.md)
+
+Electron 20 이상에선 기본적으로 sandbox가 활성화되어 있고 비활성화할 수 있다.
+
+#### Sandbox behaviour in Electron
+
+대부분 Chromium과 동일하게 작동하지만 Node.js와 상호 작용하므로 고려해야 할 추가적인 개념이 있다.
+
+##### Renderer processes
+
+일반적인 Chrome renderer와 동일하게 작동한다. sandboxed된 renderer는 Node.js 환경이 초기화되지 않는다. 따라서 권한이 있는 작업은 IPC를 통해 main에 위임하여 수행한다.
+
+##### Preload scripts's environment
+
+Main과 통신할 수 있게 허용된 sandboxed renderer의 preload scripts엔 polyfilled된 Node.js APIs의 **하위 집합**을 사용할 수 있다.
+
+require 함수는 기능이 제한된 polyfill이므로 preload script를 CommonJS modules를 사용하여 여러 개의 파일로 분리할 수 없다(bundler를 사용해야 한다).
+
+Preload script의 환경은 sandboxed된 renderer보다 더 많은 권한을 가지므로 `contextIsolation`을 활성화하여 보안을 유지해야 한다.
+
+#### Configuring the sandbox
+
+##### Disabling the sandbox for a single process
+
+Renderer sandboxing 비활성화 방법
+
+- `BrowserWindow` 생성자에서 `sandbox: false` 옵션
+- Node.js 통합을 활성화한다. BrowserWindow`생성자에서`nodeIntegration: true` 옵션
+
+##### Enabling the sandbox globally
+
+`app.enableSandbox` API를 사용하여 모든 renderer를 sandboxing한다.
+
+- app's ready event 전에 호출되어야 한다.
+
+```typescript
+app.enableSandbox();
+app.whenReady().then(() => {
+  // do something
+});
+```
+
+##### Disabling Chromium's sandbox (testing only)
+
+`--no-sandbox` CLI flag를 사용한다. test 목적으로만 사용하길 권장한다. `sandbox: true` 옵션을 사용해도 renderer's Node.js 환경은 여전히 비활성화 상태이다.
+
+#### A note on rendering untrusted content
+
+Sandboxed된 contents의 보안 측면에서 최대한 Chrome과 같아지기 위해 개발진은 노력하고 있으나 몇 가지 근본적인 이유로 인해 어려움이 있다.
+
+- (상대적으로) Chromium 전용 resource 부족
+- Electron 목표에 반하는 중앙화된 권한과 전용 서버가 필요한 보안 기능들의 존재
+- Chromium : Apps made by Electron = 1 : N이고 이로 인한 비정상적인 사용 사례가 존재
+- 사용자에게 직접 보안 업데이트를 할 수 없음
+
+이 전 Electron version에 Chromium의 보안 수정 사항을 backport하기 위해 노력하지만 latest stable version of electron을 사용하는 것이 최선이다.
+\*backporting: 최신 버전에서 일부 가져와 이전 버전으로 이식
