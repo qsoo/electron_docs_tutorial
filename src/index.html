@@ -6,7 +6,24 @@
   </head>
   <body>
     <h1>Hello from Electron renderer!</h1>
-    <p>👋</p>
     <p id="info"></p>
+    <hr />
+    <div>
+      <h2>pattern-1-renderer-to-main-one-way</h2>
+      Title: <input type="text" id="title" />
+      <button id="btn-title" type="button">Set</button>
+    </div>
+    <hr />
+    <div>
+      <h2>pattern-2-renderer-to-main-two-way</h2>
+      <button id="btn-file" type="button">Open a file</button>
+      File Path: <string id="file-path"></string>
+    </div>
+    <hr />
+    <div>
+      <h2>Pattern 3: Main to renderer</h2>
+      Current Value: <strong id="counter">0</strong>
+    </div>
+    <hr />
   </body>
 </html>

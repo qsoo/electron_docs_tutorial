@@ -28,6 +28,25 @@
       - [Preload scripts](#preload-scripts)
       - [The utility process](#the-utility-process)
       - [Process-specific module aliases (TypeScript)](#process-specific-module-aliases-typescript)
+    - [Context Isolation](#context-isolation)
+      - [What is it?](#what-is-it)
+      - [Migration](#migration)
+        - [Before: context isolation disabled](#before-context-isolation-disabled)
+        - [After: context isolation enabled](#after-context-isolation-enabled)
+      - [Security considerations](#security-considerations)
+      - [Usage with TypeScript](#usage-with-typescript)
+    - [Inter-Process Communication](#inter-process-communication)
+      - [IPC channels](#ipc-channels)
+      - [Understanding context-isolated processes](#understanding-context-isolated-processes)
+      - [Pattern 1: Renderer to main (one-way)](#pattern-1-renderer-to-main-one-way)
+      - [Pattern 2: Renderer to main (two-way)](#pattern-2-renderer-to-main-two-way)
+        - [Note: legacy approaches](#note-legacy-approaches)
+          - [Using `ipcRenderer.send`](#using-ipcrenderersend)
+          - [Using `ipcRenderer.sendSync`](#using-ipcrenderersendsync)
+      - [Pattern 3: Main to renderer](#pattern-3-main-to-renderer)
+        - [Optional: returning a reply](#optional-returning-a-reply)
+      - [Pattern 4: Renderer to renderer](#pattern-4-renderer-to-renderer)
+      - [Object serialization](#object-serialization)
 
 ## [Tutorial](https://www.electronjs.org/docs/latest/tutorial/tutorial-prerequisites)
 
@@ -283,3 +302,134 @@ Node.js의 child_process module에 의해 생성된 process와의 차이점은 u
 - `electron/main`: all main process modules type
 - `electron/renderer`: all renderer process modules type
 - `electron/common`: main 및 renderer process에서 실행할 수 있는 module의 type
+
+### Context Isolation
+
+---
+
+#### What is it?
+
+Preload script와 electron 내부 logic을 webContents에서 load하는 website와 분리된 context에서 실행하는 기능을 말한다. 보안상의 이유로 website가 electron 내부 또는 preload script가 접근할 수 있는 powerful APIs를 방지한다.
+
+#### Migration
+
+##### Before: context isolation disabled
+
+Preload script와 renderer process가 `window` 객체를 공유하여 사용
+
+##### After: context isolation enabled
+
+`contextBridge`를 사용하여 APIs를 안전하게 노출할 수 있다.
+
+#### Security considerations
+
+```typescript
+// Bad
+contextBridge.exposeInMainWorld("myAPI", {
+  send: ipcRenderer.send,
+});
+
+// Good
+contextBridge.exposeInMainWorld("myAPI", {
+  loadPreferences: () => ipcRenderer.invoke("load-prefs"),
+});
+```
+
+#### Usage with TypeScript
+
+declaration file을 통해 type을 확장해야 한다.
+
+```typescript
+// renderer.d.ts
+export interface IElectronAPI {
+  loadPreferences: () => Promise<void>;
+}
+
+declare global {
+  interface Window {
+    myAPI: IElectronAPI;
+  }
+}
+```
+
+### Inter-Process Communication
+
+---
+
+IPC를 통해 main ↔ renderer 연결이 가능하므로 여러 가지 일반적인 작업을 수행하는 유일한 방법이기에 핵심 기능이다.
+
+#### IPC channels
+
+Electron에서 process는 개발자가 정의한 `channels`을 통해 메세지를 전달하여 ipcMain 및 ipcRenderer modules와 통신한다.
+
+- arbitrary: you can name them anything you want
+- bidirectional: yon can use the same channel name for both modules
+
+#### Understanding context-isolated processes
+
+#### Pattern 1: Renderer to main (one-way)
+
+주로 web contents에서 main process API를 호출할 때 사용한다.
+
+- `ipcRenderer.send`: send a message
+- `ipcMain.on`: received
+
+1. Listen for events with `ipcMain.on`
+
+2. Expose `ipcRenderer.send` via preload
+
+3. Build the renderer process UI
+
+#### Pattern 2: Renderer to main (two-way)
+
+renderer에서 main을 호출하고 응답을 기다리는 형태
+
+- `ipcRenderer.invoke`
+- `ipcMain.handle`
+
+1. Listen for events with `ipcMain.handle`
+
+2. Expose `ipcRenderer.invoke` via preload
+
+3. Build the renderer process UI
+
+##### Note: legacy approaches
+
+`ipcRenderer.invoke` API는 Electron 7에서 양 방향 IPC를 처리하기 위해 추가되었다. 이 외에 대체 접근 방안이 있지만 가능하면 `ipcRenderer.invoke`를 사용하는 것이 좋다.
+
+###### Using `ipcRenderer.send`
+
+Electron 7 이 전 버전에서는 양 방향 통신 시 권장되는 방식이었다.
+
+- 응답 처리를 위한 ipcRenderer.on listener를 설정해야 한다.
+- message reply와 original message를 pairing할 수 있는 확실한 방법이 없다.
+
+###### Using `ipcRenderer.sendSync`
+
+Main process에 message를 보내고 응답을 synchromously하게 대기한다.
+동기식이기 때문에 응답이 수신될 때까지 renderer process가 차단된다(성능상의 문제).
+
+#### Pattern 3: Main to renderer
+
+Main to renderer를 위해선 message를 수신할 renderer를 지정해야 한다. renderer로 message를 보내기 위해선 해당 `WebContents` instance를 통해야 한다. Webcontents instance는 `ipcRenderer.send`와 동일한 방식으로 사용할 수 있는 `send` method를 가지고 있다.
+
+1. Send messages with the `webContents` module
+
+2. Expose `ipcRenderer.on` via preload
+
+3. Build the renderer process UI
+
+##### Optional: returning a reply
+
+Main to renderer에서 `ipcRenderer.invoke`에 해당하는 함수는 없다. 대신 `ipcRenderer.on` callback 내에서 main process로 다시 응답을 보낸다.
+
+#### Pattern 4: Renderer to renderer
+
+Render to render를 직접적으로 할 수 있는 방법은 없고 아래와 같은 대안이 있다.
+
+- Main process를 renderer processes 사이의 message broker로 사용한다.
+- Pass a `MessagePort`(initial setup 후 renderers 간 직접 통신 가능) from the main to renderers.
+
+#### Object serialization
+
+Electron IPC 구현은 HTML 표준 Structured Clone Algorithm을 사용하여 processes 간에 전달되는 객체를 직렬화 하므로 특정 유형의 객체만 IPC channels를 통해 전달할 수 있다. 예를 들면 DOM 객체, C++ class가 지원하는 Node.js 객체, C++ class가 지원하는 Electron 객체 등은 직렬화가 불가능하다.

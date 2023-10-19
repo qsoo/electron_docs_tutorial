@@ -1,7 +1,35 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  IpcMainEvent,
+  dialog,
+  Menu,
+} from "electron";
+import { IPC_CHANNEL_NAMES } from "./const";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+
+/**
+ * Refer to: #pattern-2-renderer-to-main-two-way
+ */
+async function handleFileOpen() {
+  const { canceled, filePaths } = await dialog.showOpenDialog({});
+
+  if (!canceled) {
+    return filePaths[0];
+  }
+}
+
+/**
+ * Refer to: #pattern-1-renderer-to-main-one-way
+ */
+function handleSetTitle(event: IpcMainEvent, title: string) {
+  const webContents = event.sender;
+  const win = BrowserWindow.fromWebContents(webContents);
+  win.setTitle(title);
+}
 
 const createWindow = (): void => {
   const win = new BrowserWindow({
@@ -13,15 +41,75 @@ const createWindow = (): void => {
     },
   });
 
+  const menu = Menu.buildFromTemplate([
+    {
+      label: app.name, // "update counter",
+      submenu: [
+        {
+          click: () =>
+            win.webContents.send(
+              IPC_CHANNEL_NAMES.WEB_CONTENTS.UPDATE_COUNTER,
+              1
+            ),
+          label: "Increment",
+        },
+        {
+          click: () =>
+            win.webContents.send(
+              IPC_CHANNEL_NAMES.WEB_CONTENTS.UPDATE_COUNTER,
+              -1
+            ),
+          label: "Decrement",
+        },
+      ],
+    },
+  ]);
+
+  Menu.setApplicationMenu(menu);
+
   win.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
   win.webContents.openDevTools();
-
-  console.log(win.webContents);
 };
 
 app.whenReady().then(() => {
-  ipcMain.handle("ping", () => "pong");
+  ipcMain.handle(IPC_CHANNEL_NAMES.PING, () => "pong");
+
+  ipcMain.on(IPC_CHANNEL_NAMES.SET_TITLE, handleSetTitle);
+  ipcMain.handle(IPC_CHANNEL_NAMES.DIALOG.OPEN_FILE, handleFileOpen);
+
+  /**
+   * Using ipcRenderer.send in two-way communication
+   */
+  // ipcMain.on(
+  //   IPC_CHANNEL_NAMES.ASYNC_MSG,
+  //   (event: IpcMainEvent, arg: string) => {
+  //     console.group("Using ipcRenderer.send");
+  //     console.log("arg", arg, "in Node.js");
+  //     console.groupEnd();
+
+  //     event.reply(IPC_CHANNEL_NAMES.ASYNC_REPLY, "pong");
+  //   }
+  // );
+
+  /**
+   * Using ipcRenderer.sendSync in two-way communication
+   */
+  // ipcMain.on(IPC_CHANNEL_NAMES.SYNC_MSG, (event: IpcMainEvent, arg: string) => {
+  //   console.group("Using ipcRenderer.sendSync");
+  //   console.log("arg", arg, "in Node.js");
+  //   console.groupEnd();
+
+  //   event.returnValue = "pong";
+  // });
+
+  ipcMain.on(
+    IPC_CHANNEL_NAMES.WEB_CONTENTS.COUNTER_VALUE,
+    (_event: IpcMainEvent, arg: number) => {
+      console.log(`Changed to ${arg}`);
+    }
+  );
+
   createWindow();
 
   app.on("activate", () => {
